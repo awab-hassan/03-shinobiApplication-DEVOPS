@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:latest
+          env:
+            - name: MYSQL_ONETIME_PASSWORD
+              value: "true"
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: MYSQL_ROOT_PASSWORD
+                  name: shinobi-secret
+            - name: MYSQL_DATABASE
+              value: newdatabase
+            - name: MYSQL_USER
+              value: newuser
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: MYSQL_PASSWORD
+                  name: shinobi-secret
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/mysql
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: shinobi-mysql-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+spec:
+  selector:
+    app: mysql
+  ports:
+    - protocol: TCP
+      port: 3306
+      targetPort: 3306
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shinobi-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shinobi
+  template:
+    metadata:
+      labels:
+        app: shinobi
+    spec:
+      containers:
+        - name: shinobi
+          image: registry.gitlab.com/shinobi-systems/shinobi:dev
+          ports:
+            - containerPort: 8080
+          env:
+            - name: MYSQL_HOST
+              value: "mysql-service"
+            - name: MYSQL_DATABASE
+              value: newdatabase
+            - name: MYSQL_USER
+              value: newuser
+            - name: ADMIN_USER
+              value: "admin"
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: MYSQL_PASSWORD
+                  name: shinobi-secret
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: ADMIN_PASSWORD
+                  name: shinobi-secret
+            - name: utcOffset
+              value: "${utcOffset}"
+          volumeMounts:
+           - name: localtime
+             mountPath: /etc/localtime
+             readOnly: true
+           - name: config-volume
+             mountPath: /config
+           - name: streams-volume
+             mountPath: /dev/shm/streamss
+      volumes:
+        - name: localtime
+          hostPath:
+            path: /etc/localtime
+        - name: config-volume
+          persistentVolumeClaim:
+            claimName: shinobi-config-pvc
+        - name: streams-volume
+          persistentVolumeClaim:
+            claimName: shinobi-streams-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shinobi-service
+spec:
+  selector:
+    app: shinobi
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: NodePort
